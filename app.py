@@ -284,9 +284,7 @@ def skills_de_cursos_completados(titulos, online):
             skills.update(fila.iloc[0]["tokens"])
     return skills
 
-# ─────────────────────────────────────────────────────────────────────────────
-# APP
-# ─────────────────────────────────────────────────────────────────────────────
+
 st.set_page_config(page_title="Recomendador de Cursos", page_icon="🎓", layout="wide")
 
 st.markdown("""
@@ -310,7 +308,6 @@ mallas, ofertas, online, modelo, habilidades_validas, tfidf, X = cargar_todo()
 combos        = mallas.groupby(["universidad","carrera"]).size().reset_index(name="n")
 universidades = sorted(combos["universidad"].unique())
 
-# ── ESTADO — inicializar UNA sola vez, nunca borrar ──────────────────────
 for key, default in [
     ("completados", set()),
     ("por_llevar",  []),
@@ -321,7 +318,7 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ── Sidebar ───────────────────────────────────────────────────────────────
+
 with st.sidebar:
     st.header("⚙️ Tu perfil")
     univ          = st.selectbox("Universidad", universidades)
@@ -340,7 +337,7 @@ with st.sidebar:
         st.session_state.idx_actual  = 0
         st.rerun()
 
-# ── Pipeline ──────────────────────────────────────────────────────────────
+
 def ejecutar_pipeline():
     ofr = ofertas.copy()
     if niveles_sel:
@@ -361,7 +358,7 @@ if st.session_state.recs is None:
     with st.spinner("Calculando recomendaciones…"):
         ejecutar_pipeline()
 
-# ── Métricas ──────────────────────────────────────────────────────────────
+
 gap_df = st.session_state.gap_df
 recs   = st.session_state.recs
 
@@ -384,7 +381,7 @@ if recs is None or recs.empty:
 idx   = st.session_state.idx_actual
 total = len(recs)
 
-# ── PANTALLA FINAL ────────────────────────────────────────────────────────
+
 if idx >= total:
     st.success("🎉 Revisaste todos los cursos recomendados.")
     st.markdown("---")
@@ -434,7 +431,7 @@ if idx >= total:
         st.rerun()
     st.stop()
 
-# ── TARJETA ACTUAL ────────────────────────────────────────────────────────
+
 row     = recs.iloc[idx]
 titulo  = row["titulo"]
 portal  = str(row.get("portal", ""))
