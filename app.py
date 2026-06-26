@@ -466,9 +466,8 @@ idx     = st.session_state.idx_actual
 total   = len(recs)
 
 if idx >= total:
-    st.write("🔎 DEBUG — por_llevar:", st.session_state.get("por_llevar", "NO EXISTE"))
-    st.write("🔎 DEBUG — idx_actual:", st.session_state.idx_actual)
-    st.write("🔎 DEBUG — total recs:", total)
+    st.write("por_llevar:", st.session_state.get("por_llevar"))
+    st.write("completados:", st.session_state.get("completados"))
     st.success("🎉 Revisaste todos los cursos recomendados.")
 
     # ── Consolidado ───────────────────────────────────────────────────────
