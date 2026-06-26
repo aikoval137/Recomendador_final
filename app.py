@@ -526,11 +526,11 @@ col_si, col_no = st.columns(2)
 with col_si:
     if st.button("✅ Ya lo sé / lo completé → siguiente", use_container_width=True, type="primary"):
         st.session_state.completados.add(titulo)
-        st.session_state.idx_actual += 1
-        # Recalcular en segundo plano para que el siguiente curso ya refleje
-        # las skills ganadas con este curso completado
         with st.spinner("Actualizando recomendaciones…"):
             ejecutar_pipeline()
+        # Restaurar índice después del recálculo, excluyendo el curso recién completado
+        nuevo_total = len(st.session_state.recs) if st.session_state.recs is not None else 0
+        st.session_state.idx_actual = min(st.session_state.idx_actual, nuevo_total)
         st.rerun()
 
 with col_no:
