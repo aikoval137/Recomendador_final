@@ -431,8 +431,7 @@ def ejecutar_pipeline():
 # Calcular al arrancar (si no hay resultados aún)
 if st.session_state.recs is None:
     with st.spinner("Calculando recomendaciones…"):
-        ejecutar_pipeline()
-    st.session_state.idx_actual = 0   
+        ejecutar_pipeline()  
 # ─────────────────────────────────────────────────────────────────────────────
 # MOSTRAR MÉTRICAS DEL GAP
 # ─────────────────────────────────────────────────────────────────────────────
@@ -567,11 +566,11 @@ col_si, col_no = st.columns(2)
 with col_si:
     if st.button("✅ Ya lo sé / lo completé → siguiente", use_container_width=True, type="primary"):
         st.session_state.completados.add(titulo)
-        idx_antes = st.session_state.idx_actual          # ← guardar ANTES
         with st.spinner("Actualizando recomendaciones…"):
-            ejecutar_pipeline()                           # ← esto pone idx en 0
+            ejecutar_pipeline()
         nuevo_total = len(st.session_state.recs) if st.session_state.recs is not None else 0
-        st.session_state.idx_actual = min(idx_antes, nuevo_total - 1)  # ← restaurar
+        # Avanzar al siguiente, no quedarse en el mismo índice
+        st.session_state.idx_actual = min(st.session_state.idx_actual, nuevo_total)
         st.rerun()
 
 with col_no:
