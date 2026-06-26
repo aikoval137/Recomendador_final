@@ -18,7 +18,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 # CONFIG — ajusta las rutas según tu estructura de carpetas
 # ─────────────────────────────────────────────────────────────────────────────
 RUTA_MALLAS   = "tokenizado_cursos.csv"
-RUTA_OFERTAS  = "df_ofertas_laborales.csv"
+RUTA_OFERTAS  = "df_ofertas_1.csv"
 RUTA_ONLINE   = "palabras_3.csv"
 RUTA_COURSERA = "coursera_cursos_v5.csv"
 RUTA_UDEMY    = "udemy_cursos_playwright_3.csv"
