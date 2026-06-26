@@ -9,9 +9,6 @@ from gensim.models import Word2Vec
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CONFIG
-# ─────────────────────────────────────────────────────────────────────────────
 RUTA_MALLAS   = "tokenizado_cursos.csv"
 RUTA_OFERTAS  = "df_ofertas_1.csv"
 RUTA_ONLINE   = "palabras_3.csv"
@@ -22,9 +19,6 @@ RUTA_TFIDF    = "modelos/tfidf.pkl"
 RUTA_TFIDF_X  = "modelos/tfidf_X.npz"
 os.makedirs("modelos", exist_ok=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# UTILIDADES DE TEXTO
-# ─────────────────────────────────────────────────────────────────────────────
 def quitar_acentos(texto):
     nfkd = unicodedata.normalize("NFKD", str(texto))
     return "".join(c for c in nfkd if not unicodedata.combining(c))
@@ -97,7 +91,7 @@ TOKENS_NO_TECH = {
     "ecologia","responsabilidad","salud","medicina","enfermeria","nutricion",
     "nivelacion","deportes","arte","musica","teatro",
 }
-SEMILLAS_TECH   = [
+SEMILLAS_TECH = [
     "python","sql","datos","algoritmos","software","redes","seguridad","cloud",
     "programacion","sistemas","machine_learning","base_datos","desarrollo","automatizacion",
 ]
@@ -108,9 +102,6 @@ PATRON_IDIOMAS  = re.compile(
     re.IGNORECASE,
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# VECTORES
-# ─────────────────────────────────────────────────────────────────────────────
 def vec(tokens, modelo):
     vs = [modelo.wv[t] for t in tokens if t in modelo.wv]
     return np.mean(vs, axis=0) if vs else None
@@ -121,9 +112,6 @@ def cos(a, b):
     na, nb = np.linalg.norm(a), np.linalg.norm(b)
     return float(np.dot(a, b) / (na * nb)) if na > 0 and nb > 0 else 0.0
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CARGA (cacheada)
-# ─────────────────────────────────────────────────────────────────────────────
 def parsear_precio(valor):
     if not isinstance(valor, str) or not valor.strip():
         return "No especificado"
@@ -147,14 +135,12 @@ def cargar_todo():
     mallas["es_no_tech"] = mallas["tokens_nombre"].apply(
         lambda t: bool(set(t) & TOKENS_NO_TECH)
     )
-
     ofertas = pd.read_csv(RUTA_OFERTAS)
     ofertas["hab_tokens"] = ofertas["habilidades"].apply(parse_lista)
     ofertas["hab_tokens"] = ofertas["hab_tokens"].apply(
         lambda l: limpiar_tokens(l, stop=STOP_OFERTAS)
     )
     ofertas = ofertas[ofertas["hab_tokens"].map(len) > 0].reset_index(drop=True)
-
     online = pd.read_csv(RUTA_ONLINE, sep="|").rename(
         columns={"texto_consolidado": "descripcion", "fuente": "portal"}
     )
@@ -172,30 +158,24 @@ def cargar_todo():
     online = online[online["tokens"].map(len) > 0]
     online = online[~online["titulo"].astype(str).apply(
         lambda t: bool(PATRON_IDIOMAS.search(t)))].reset_index(drop=True)
-
-    # Word2Vec
     if os.path.exists(RUTA_W2V):
         modelo = Word2Vec.load(RUTA_W2V)
     else:
-        corpus  = list(online["tokens"]) + list(ofertas["hab_tokens"]) + list(mallas["tokens_nombre"])
-        corpus  = [d for d in corpus if d]
-        modelo  = Word2Vec(sentences=corpus, vector_size=100, window=5,
-                           min_count=2, sg=1, workers=4, epochs=20, seed=42)
+        corpus = list(online["tokens"]) + list(ofertas["hab_tokens"]) + list(mallas["tokens_nombre"])
+        corpus = [d for d in corpus if d]
+        modelo = Word2Vec(sentences=corpus, vector_size=100, window=5,
+                          min_count=2, sg=1, workers=4, epochs=20, seed=42)
         modelo.save(RUTA_W2V)
-
-    # Filtro tech
     sem_ok = [s for s in SEMILLAS_TECH if s in modelo.wv]
     v_tech = np.mean([modelo.wv[s] for s in sem_ok], axis=0)
     cand_f1 = mallas[~mallas["es_no_tech"] & (mallas["tokens_nombre"].map(len) > 0)].copy()
     cand_f1["sim_tech"] = cand_f1["tokens_nombre"].apply(lambda t: cos(vec(t, modelo), v_tech))
     cursos_tech = set(cand_f1[cand_f1["sim_tech"] >= UMBRAL_SIM_TECH]["curso"])
     mallas["es_tech"] = mallas["curso"].isin(cursos_tech)
-
     freq_hab = Counter()
     for toks in ofertas["hab_tokens"]:
         freq_hab.update(set(toks))
     habilidades_validas = [h for h, n in freq_hab.items() if n >= 5 and h in modelo.wv]
-
     def predecir_skills(tokens_curso):
         v_curso = vec(tokens_curso, modelo)
         if v_curso is None:
@@ -204,10 +184,7 @@ def cargar_todo():
         scores = [(h, s) for h, s in scores if s >= 0.30]
         scores.sort(key=lambda x: x[1], reverse=True)
         return [h for h, _ in scores[:6]]
-
     mallas["skills_predichos"] = mallas["tokens_nombre"].apply(predecir_skills)
-
-    # TF-IDF
     if os.path.exists(RUTA_TFIDF) and os.path.exists(RUTA_TFIDF_X):
         with open(RUTA_TFIDF, "rb") as f:
             tfidf = pickle.load(f)
@@ -218,12 +195,8 @@ def cargar_todo():
         with open(RUTA_TFIDF, "wb") as f:
             pickle.dump(tfidf, f)
         scipy.sparse.save_npz(RUTA_TFIDF_X, X)
-
     return mallas, ofertas, online, modelo, habilidades_validas, tfidf, X
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PIPELINE
-# ─────────────────────────────────────────────────────────────────────────────
 def filtrar_ofertas_por_carrera(ofertas, carrera, modelo, top_pct=0.5):
     carrera_tokens = limpiar_tokens(quitar_acentos(carrera).lower().split())
     v_carrera = vec(carrera_tokens, modelo)
@@ -262,34 +235,27 @@ def recomendar_cursos(online, gap_df, tfidf, X, excluir_titulos=None,
     if gap.empty:
         gap = gap_df.copy()
     gap = gap.head(top_k_gap)
-
     consulta   = " ".join(gap["habilidad"])
     q          = tfidf.transform([consulta])
     relevancia = cosine_similarity(q, X).ravel()
-
     M = min(n_candidatos, int((relevancia > 0).sum()))
     if M == 0:
         return pd.DataFrame()
-
     idx  = np.argsort(relevancia)[::-1][:M]
     cand = online.iloc[idx].copy().reset_index(drop=True)
     cand["relevancia"] = relevancia[idx]
     cand = cand[~cand["titulo"].isin(excluir_titulos)].reset_index(drop=True)
     if cand.empty:
         return pd.DataFrame()
-
     def norm(s):
         r = s.max() - s.min()
         return (s - s.min()) / r if r > 0 else s * 0 + 1.0
-
     cand["score"] = norm(cand["relevancia"])
     cand = cand.sort_values("score", ascending=False).reset_index(drop=True)
-
     peso_skill = dict(zip(gap["habilidad"], gap["peso_gap"]))
     total      = sum(peso_skill.values()) or 1.0
     cand_sets  = [set(t) & set(peso_skill) for t in cand["tokens"]]
     Xc2        = tfidf.transform(cand["doc"])
-
     elegidos, cubiertas = [], set()
     while len(elegidos) < min(n_cursos, len(cand)):
         mejor_i, mejor_val = None, -1e9
@@ -304,7 +270,6 @@ def recomendar_cursos(online, gap_df, tfidf, X, excluir_titulos=None,
                 mejor_val, mejor_i = val, i
         elegidos.append(mejor_i)
         cubiertas |= cand_sets[mejor_i]
-
     cand = cand.iloc[elegidos].reset_index(drop=True)
     cand["gap_cubierto"] = cand["tokens"].apply(
         lambda t: ", ".join(sorted(set(t) & set(peso_skill))[:8]) or "—"
@@ -326,90 +291,56 @@ st.set_page_config(page_title="Recomendador de Cursos", page_icon="🎓", layout
 
 st.markdown("""
 <style>
-.card {
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 1.1rem 1.3rem;
-    margin-bottom: 1rem;
-    background: #f8fafc;
-}
-.card h3 { margin: 0 0 4px; font-size: 1.05rem; }
-.pill {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    margin-right: 4px;
-}
-.pill-c  { background:#dbeafe; color:#1d4ed8; }
-.pill-u  { background:#ffedd5; color:#c2410c; }
-.pill-g  { background:#f3e8ff; color:#7c3aed; }
-.pill-p  { background:#dcfce7; color:#166534; }
-.bar-bg  { height:5px; background:#e2e8f0; border-radius:3px; margin:6px 0 2px; }
-.bar-fg  { height:5px; background:#6366f1; border-radius:3px; }
+.card { border:1px solid #e2e8f0; border-radius:12px; padding:1.1rem 1.3rem; margin-bottom:1rem; background:#f8fafc; }
+.card h3 { margin:0 0 4px; font-size:1.05rem; }
+.pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:0.72rem; font-weight:600; margin-right:4px; }
+.pill-c { background:#dbeafe; color:#1d4ed8; }
+.pill-u { background:#ffedd5; color:#c2410c; }
+.pill-g { background:#f3e8ff; color:#7c3aed; }
+.pill-p { background:#dcfce7; color:#166534; }
+.bar-bg { height:5px; background:#e2e8f0; border-radius:3px; margin:6px 0 2px; }
+.bar-fg { height:5px; background:#6366f1; border-radius:3px; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🎓 Recomendador de Cursos por Brecha de Habilidades")
 st.caption("Selecciona tu universidad y carrera, y te recomendamos cursos online para cerrar tu GAP con el mercado laboral.")
 
-# ── Cargar recursos ────────────────────────────────────────────────────────
 mallas, ofertas, online, modelo, habilidades_validas, tfidf, X = cargar_todo()
-
 combos        = mallas.groupby(["universidad","carrera"]).size().reset_index(name="n")
 universidades = sorted(combos["universidad"].unique())
 
-# ── Sidebar ────────────────────────────────────────────────────────────────
+# ── ESTADO — inicializar UNA sola vez, nunca borrar ──────────────────────
+for key, default in [
+    ("completados", set()),
+    ("por_llevar",  []),
+    ("recs",        None),
+    ("gap_df",      None),
+    ("idx_actual",  0),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+# ── Sidebar ───────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ Tu perfil")
-    univ    = st.selectbox("Universidad", universidades)
+    univ          = st.selectbox("Universidad", universidades)
     carreras_disp = sorted(combos[combos["universidad"] == univ]["carrera"].tolist())
-    carrera = st.selectbox("Carrera", carreras_disp)
-
+    carrera       = st.selectbox("Carrera", carreras_disp)
     st.divider()
     niveles_opc = sorted(ofertas["Nivel"].dropna().unique().tolist())
     niveles_sel = st.multiselect("Nivel de oferta laboral", niveles_opc, default=niveles_opc)
     n_cursos    = st.slider("Cursos a recomendar", 3, 10, 5)
-
     st.divider()
     if st.button("🔄 Reiniciar", use_container_width=True):
-        por_llevar_backup = st.session_state.get("por_llevar", [])
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
-        st.session_state["por_llevar"] = por_llevar_backup
+        st.session_state.completados = set()
+        st.session_state.por_llevar  = []
+        st.session_state.recs        = None
+        st.session_state.gap_df      = None
+        st.session_state.idx_actual  = 0
         st.rerun()
 
-# ── Resetear estado si cambia el perfil ───────────────────────────────────
-perfil_key = f"{univ}||{carrera}"
-perfil_anterior = st.session_state.get("_perfil")
-
-if perfil_anterior is not None and perfil_anterior != perfil_key:
-    # Solo resetea si el usuario cambió de carrera/universidad
-    completados_backup = st.session_state.get("completados", set())
-    por_llevar_backup  = st.session_state.get("por_llevar", [])
-    for k in list(st.session_state.keys()):
-        del st.session_state[k]
-    st.session_state["_perfil"]     = perfil_key
-    st.session_state["completados"] = completados_backup
-    st.session_state["por_llevar"]  = por_llevar_backup
-else:
-    st.session_state["_perfil"] = perfil_key
-# ── Inicializar estado ────────────────────────────────────────────────────
-if "completados" not in st.session_state:
-    st.session_state.completados = set()
-if "recs"        not in st.session_state:
-    st.session_state.recs        = None
-if "gap_df"      not in st.session_state:
-    st.session_state.gap_df      = None
-if "idx_actual"  not in st.session_state:
-    st.session_state.idx_actual  = 0
-if "por_llevar"  not in st.session_state:
-    st.session_state.por_llevar  = []
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PIPELINE
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Pipeline ──────────────────────────────────────────────────────────────
 def ejecutar_pipeline():
     ofr = ofertas.copy()
     if niveles_sel:
@@ -426,26 +357,19 @@ def ejecutar_pipeline():
     st.session_state.gap_df = gap_df
     st.session_state.recs   = recs
 
-# Calcular al arrancar
 if st.session_state.recs is None:
     with st.spinner("Calculando recomendaciones…"):
         ejecutar_pipeline()
-    # NO tocar idx_actual aquí — ya está en 0 por defecto
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MÉTRICAS
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Métricas ──────────────────────────────────────────────────────────────
 gap_df = st.session_state.gap_df
 recs   = st.session_state.recs
 
 if gap_df is not None:
-    n_gap  = int(gap_df["es_gap"].sum())
-    n_comp = len(st.session_state.completados)
     m1, m2, m3 = st.columns(3)
-    m1.metric("Skills en el GAP",         n_gap)
-    m2.metric("Cursos online completados", n_comp)
+    m1.metric("Skills en el GAP",         int(gap_df["es_gap"].sum()))
+    m2.metric("Cursos online completados", len(st.session_state.completados))
     m3.metric("Cursos recomendados",       len(recs) if recs is not None and not recs.empty else 0)
-
     with st.expander("🔍 Ver top habilidades del GAP"):
         top = gap_df[gap_df["es_gap"]].head(12)[["habilidad","demanda","cobertura","peso_gap"]]
         top.columns = ["Habilidad","Demanda","Cobertura","Peso GAP"]
@@ -453,11 +377,8 @@ if gap_df is not None:
 
 st.divider()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TARJETAS — UNA A LA VEZ
-# ─────────────────────────────────────────────────────────────────────────────
 if recs is None or recs.empty:
-    st.success("🎉 ¡No hay más cursos que recomendar para este GAP! Prueba cambiando los filtros.")
+    st.success("🎉 ¡No hay más cursos que recomendar! Prueba cambiando los filtros.")
     st.stop()
 
 idx   = st.session_state.idx_actual
@@ -466,28 +387,32 @@ total = len(recs)
 # ── PANTALLA FINAL ────────────────────────────────────────────────────────
 if idx >= total:
     st.success("🎉 Revisaste todos los cursos recomendados.")
+    st.markdown("---")
 
     lista = st.session_state.por_llevar
+    st.markdown(f"### 📚 Cursos por llevar ({len(lista)})")
+
     if lista:
-        st.markdown("### 📚 Tu lista de cursos por llevar")
         for i, c in enumerate(lista, 1):
+            portal_str  = str(c.get("portal", ""))
+            precio_str  = str(c.get("precio", "No especificado"))
+            url_str     = str(c.get("url", ""))
+            gap_str     = str(c.get("gap_cub", "—"))
+
             portal_badge = (
                 '<span class="pill pill-c">🟦 Coursera</span>'
-                if "coursera" in str(c.get("portal","")).lower()
+                if "coursera" in portal_str.lower()
                 else '<span class="pill pill-u">🟧 Udemy</span>'
             )
-            precio_val   = str(c.get("precio","No especificado"))
             precio_badge = (
                 '<span class="pill pill-p">🆓 Gratis</span>'
-                if precio_val.lower() == "gratis"
-                else f'<span class="pill" style="background:#f1f5f9;color:#475569;">💰 {precio_val}</span>'
+                if precio_str.lower() == "gratis"
+                else f'<span class="pill" style="background:#f1f5f9;color:#475569;">💰 {precio_str}</span>'
             )
-            url_c      = str(c.get("url",""))
-            link_html  = f'<a href="{url_c}" target="_blank">🔗 Ver curso</a>' if url_c else ""
-            gap_cub_c  = str(c.get("gap_cub","—"))
+            link_html   = f'<a href="{url_str}" target="_blank">🔗 Ver curso</a>' if url_str else ""
             skills_html = "".join(
                 f'<span class="pill pill-g">{s}</span>'
-                for s in gap_cub_c.split(", ") if s and s != "—"
+                for s in gap_str.split(", ") if s and s != "—"
             )
             st.markdown(f"""
 <div class="card">
@@ -498,31 +423,26 @@ if idx >= total:
   </div>
 </div>
 """, unsafe_allow_html=True)
-
-        if st.button("🗑️ Limpiar lista"):
-            st.session_state.por_llevar = []
-            st.rerun()
     else:
-        st.info("No guardaste ningún curso en tu lista (usaste solo el botón ✅).")
+        st.info("Marcaste todos los cursos como ya conocidos (✅). No guardaste ninguno para llevar.")
 
-    if st.button("🔁 Calcular nuevas recomendaciones"):
-        st.session_state.recs      = None
-        st.session_state.gap_df    = None
+    st.markdown("---")
+    if st.button("🔁 Nueva ronda de recomendaciones"):
+        st.session_state.recs       = None
+        st.session_state.gap_df     = None
         st.session_state.idx_actual = 0
-        with st.spinner("Recalculando…"):
-            ejecutar_pipeline()
         st.rerun()
     st.stop()
 
 # ── TARJETA ACTUAL ────────────────────────────────────────────────────────
 row     = recs.iloc[idx]
 titulo  = row["titulo"]
-portal  = str(row.get("portal",""))
-precio  = str(row.get("precio","No especificado"))
-url     = str(row.get("url",""))
+portal  = str(row.get("portal", ""))
+precio  = str(row.get("precio", "No especificado"))
+url     = str(row.get("url", ""))
 score   = float(row.get("score", 0))
-gap_cub = str(row.get("gap_cubierto","—"))
-desc    = str(row.get("descripcion",""))
+gap_cub = str(row.get("gap_cubierto", "—"))
+desc    = str(row.get("descripcion", ""))
 
 badge_portal = (
     '<span class="pill pill-c">🟦 Coursera</span>'
@@ -535,7 +455,6 @@ badge_precio = (
     else f'<span class="pill" style="background:#f1f5f9;color:#475569;">💰 {precio}</span>'
 )
 link_html   = f'<a href="{url}" target="_blank">🔗 Ver curso</a>' if url else ""
-pct         = int(score * 100)
 skills_html = "".join(
     f'<span class="pill pill-g">{s}</span>'
     for s in gap_cub.split(", ") if s and s != "—"
@@ -548,7 +467,7 @@ st.markdown(f"""
 <div class="card">
   <h3>{titulo}</h3>
   <div style="margin:6px 0 10px;">{badge_portal} {badge_precio} {link_html}</div>
-  <div class="bar-bg"><div class="bar-fg" style="width:{pct}%"></div></div>
+  <div class="bar-bg"><div class="bar-fg" style="width:{int(score*100)}%"></div></div>
   <span style="font-size:0.75rem;color:#64748b;">Relevancia para tu GAP: {score:.2f}</span>
   <p style="margin:10px 0 6px;font-size:0.85rem;color:#334155;">{desc[:350]}…</p>
   <div style="margin-top:8px;"><strong style="font-size:0.8rem;">Habilidades que cubre:</strong><br/>
@@ -557,7 +476,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Botones ───────────────────────────────────────────────────────────────
 st.markdown("#### ¿Ya conoces este curso o lo completaste?")
 col_si, col_no = st.columns(2)
 
@@ -568,9 +486,6 @@ with col_si:
         with st.spinner("Actualizando recomendaciones…"):
             ejecutar_pipeline()
         nuevo_total = len(st.session_state.recs) if st.session_state.recs is not None else 0
-        # ── FIX CLAVE: avanzar al siguiente, no quedarse en el mismo ──
-        # Si el curso desapareció de recs (fue excluido), el índice ya apunta
-        # al siguiente. Si no desapareció, hay que avanzar uno más.
         st.session_state.idx_actual = min(idx_antes + 1, nuevo_total)
         st.rerun()
 
@@ -588,9 +503,8 @@ with col_no:
         st.session_state.idx_actual += 1
         st.rerun()
 
-# ── Lista de completados (sidebar inferior) ───────────────────────────────
 if st.session_state.completados:
     st.divider()
-    with st.expander(f"📋 Cursos completados en esta sesión ({len(st.session_state.completados)})"):
+    with st.expander(f"📋 Completados en esta sesión ({len(st.session_state.completados)})"):
         for t in sorted(st.session_state.completados):
             st.markdown(f"- ✅ {t}")
