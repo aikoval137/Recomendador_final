@@ -1,40 +1,3 @@
-"""
-====================================================================
-UDEMY SCRAPER - VERSIÓN CON NAVEGADOR REAL (Playwright)
-CON CHECKPOINT/RESUME + DETECCIÓN DE BLOQUEO
-====================================================================
-CAMBIOS RESPECTO A LA VERSIÓN ANTERIOR:
-
-  1) DETECCIÓN DE BLOQUEO EN ETAPA 2
-     A partir de cierto volumen de requests Udemy empieza a redirigir
-     las páginas de curso a contenido genérico (la barra de nav con
-     "Explore by goal | Popular Issuers | Popular Subjects", o a un
-     login). Antes esto se guardaba como si fuera un curso válido
-     (con casi todo vacío). Ahora se detecta explícitamente, se
-     reintenta con backoff, y si el bloqueo persiste el script se
-     PAUSA solo (no sigue de cero) para que esperes o cambies de IP.
-
-  2) CHECKPOINT / RESUME REAL
-     - El CSV se lee al arrancar: si ya existe, los cursos ya
-       encontrados en Etapa 1 NO se vuelven a buscar (se cargan tal
-       cual) y los que ya tienen "temario" no vacío en Etapa 2 se
-       saltan.
-     - Podés parar el script en cualquier momento (Ctrl+C) o que se
-       corte la luz: al volver a ejecutar, sigue donde quedó.
-     - Etapa 1 también guarda un archivo de progreso por término
-       (qué páginas ya recorrió de cada término) para no repetir
-       búsquedas ya hechas.
-
-INSTALACIÓN (una sola vez):
-  pip install playwright pandas
-  playwright install chromium
-
-CÓMO EJECUTAR:
-  python udemy_scraper_playwright.py
-  (Ctrl+C para pausar en cualquier momento; volver a correr para continuar)
-====================================================================
-"""
-
 import time
 import random
 import re
@@ -44,19 +7,16 @@ import pandas as pd
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-# ─── CONFIGURACIÓN ────────────────────────────────────────────────
 OUTPUT_CSV     = "udemy_cursos_playwright_3.csv"
-PROGRESS_FILE  = "udemy_progress.json"   # guarda qué páginas/términos ya se hicieron
+PROGRESS_FILE  = "udemy_progress.json"
 MAX_PAGINAS    = 20
-HEADLESS       = True
+HEADLESS        = True
 
 SCRAPE_DETALLES   = True
 LIMITE_DETALLES   = None
 
-# Si N páginas de curso seguidas vienen "bloqueadas" (sin contenido real),
-# el script pausa y espera antes de seguir reintentando.
 MAX_FALLOS_SEGUIDOS   = 5
-ESPERA_TRAS_BLOQUEO_S = 120   # segundos que espera tras detectar bloqueo sostenido
+ESPERA_TRAS_BLOQUEO_S = 120
 
 TERMINOS = [
     "python", "javascript", "excel", "photoshop", "diseño grafico",
@@ -68,7 +28,6 @@ TERMINOS = [
 BASE_URL = "https://www.udemy.com/courses/search/?q={termino}&p={pagina}"
 
 
-# ─── UTILIDADES DE PERSISTENCIA ───────────────────────────────────
 def cargar_csv_existente() -> pd.DataFrame:
     path = Path(OUTPUT_CSV)
     if path.exists():
@@ -106,10 +65,6 @@ def limpiar_texto(texto: str) -> str:
     return " ".join(texto.split())
 
 
-# ─── DETECCIÓN DE BLOQUEO ─────────────────────────────────────────
-# Frases que solo aparecen en el menú de navegación genérico de Udemy
-# (home / sidebar de "explorar categorías"), nunca en el temario real
-# de un curso. Si aparecen, NO es la página del curso.
 NAV_GENERICA_MARCADORES = [
     "explore by goal",
     "popular issuers",
@@ -129,14 +84,6 @@ def _es_nav_generica(texto: str) -> bool:
 
 
 def detalle_parece_bloqueado(detalle: dict) -> bool:
-    """
-    Heurística: tratamos el detalle como bloqueado si:
-      (a) descripción, objetivos y temario vienen todos vacíos, o
-      (b) cualquiera de esos campos contiene texto de la navegación
-          genérica de Udemy (ej: "Explore by goal | Popular Issuers |
-          Popular Subjects"), que es lo que aparece cuando Udemy
-          redirige a la home/login en vez de mostrar el curso.
-    """
     campos_clave = ["descripcion", "objetivos", "temario"]
     valores = [detalle.get(c) or "" for c in campos_clave]
 
@@ -249,7 +196,7 @@ def scrape_termino(browser_page, termino: str, vistos: set) -> list[dict]:
             cursos_pagina = extraer_cursos_de_pagina(browser_page)
 
             if not cursos_pagina:
-                print(f"  📄 Página {pagina}: 0 cursos. Fin del término.")
+                print(f"   📄 Página {pagina}: 0 cursos. Fin del término.")
                 break
 
             nuevos_esta_pagina = 0
@@ -257,7 +204,7 @@ def scrape_termino(browser_page, termino: str, vistos: set) -> list[dict]:
                 clave = item.get("url") or item.get("titulo")
                 if not clave or clave in vistos:
                     continue
-                vistos.add(clave)
+                vicios = vistos.add(clave)
                 nuevos_esta_pagina += 1
                 cursos_nuevos.append({
                     "titulo": limpiar_texto(item.get("titulo") or ""),
@@ -271,22 +218,21 @@ def scrape_termino(browser_page, termino: str, vistos: set) -> list[dict]:
                     "precio": limpiar_texto(item.get("precio") or ""),
                     "url": item.get("url"),
                     "termino_busqueda": termino,
-                    # columnas de detalle, se llenan en Etapa 2
                     "idioma": "", "descripcion": "", "objetivos": "",
                     "requisitos": "", "temario": "", "temario_stats": "",
                 })
 
-            print(f"  📄 Página {pagina}: {len(cursos_pagina)} cursos "
+            print(f"   📄 Página {pagina}: {len(cursos_pagina)} cursos "
                   f"({nuevos_esta_pagina} nuevos, total: {len(cursos_nuevos):,})")
 
             if nuevos_esta_pagina == 0:
-                print(f"  🏁 Sin cursos nuevos, siguiente término")
+                print(f" Sin cursos nuevos, siguiente término")
                 break
 
             time.sleep(random.uniform(1.5, 3.0))
 
         except Exception as e:
-            print(f"  ❌ Error en página {pagina}: {e}")
+            print(f"  Error en página {pagina}: {e}")
             break
 
     return cursos_nuevos
@@ -317,7 +263,6 @@ def main():
     progreso = cargar_progreso()
 
     todos = df_existente.to_dict("records") if len(df_existente) else []
-    # aseguramos que existan las columnas de detalle aunque el CSV viejo no las tuviera
     for c in ["idioma", "descripcion", "objetivos", "requisitos", "temario", "temario_stats"]:
         for curso in todos:
             curso.setdefault(c, "")
@@ -334,7 +279,6 @@ def main():
         browser, context, page = crear_browser(p)
 
         try:
-            # ── ETAPA 1: búsqueda por término ──────────────────────
             for termino in TERMINOS:
                 if termino in progreso["terminos_completados"]:
                     print(f"⏭  Saltando '{termino}' (ya completado en una corrida anterior)")
@@ -345,14 +289,13 @@ def main():
 
                 if todos:
                     guardar_csv(pd.DataFrame(todos))
-                    print(f"  💾 Backup guardado: {len(todos):,} cursos totales")
+                    print(f"   💾 Backup guardado: {len(todos):,} cursos totales")
 
                 progreso["terminos_completados"].append(termino)
                 guardar_progreso(progreso)
 
                 time.sleep(random.uniform(3, 6))
 
-            # ── ETAPA 2: detalle de cada curso ─────────────────────
             if SCRAPE_DETALLES and todos:
                 pendientes = [c for c in todos if not (c.get("temario") or "").strip()]
                 if LIMITE_DETALLES is not None:
@@ -374,10 +317,10 @@ def main():
 
                     if detalle_parece_bloqueado(detalle):
                         fallos_seguidos += 1
-                        print(f"  🚫 [{i}/{len(pendientes)}] Posible bloqueo/redirect en: {url}")
+                        print(f"   [{i}/{len(pendientes)}] Posible bloqueo/redirect en: {url}")
 
                         if fallos_seguidos >= MAX_FALLOS_SEGUIDOS:
-                            print(f"\n⛔ {fallos_seguidos} fallos seguidos — probablemente Udemy "
+                            print(f"\n {fallos_seguidos} fallos seguidos — probablemente Udemy "
                                   f"está bloqueando la sesión.")
                             print(f"   Guardando progreso y esperando {ESPERA_TRAS_BLOQUEO_S}s, "
                                   f"luego reinicio el navegador (nueva sesión)...")
@@ -391,17 +334,17 @@ def main():
                             browser, context, page = crear_browser(p)
                             fallos_seguidos = 0
                         else:
-                            time.sleep(random.uniform(5, 10))  # backoff antes de seguir
-                        continue  # no actualizamos el curso con datos vacíos; queda "pendiente" para el próximo run
+                            time.sleep(random.uniform(5, 10))
+                        continue
 
                     fallos_seguidos = 0
                     curso.update(detalle)
-                    print(f"  [{i}/{len(pendientes)}] {curso.get('titulo', '')[:50]:50s} "
-                          f"| idioma: {detalle.get('idioma','')} | temario: ✅")
+                    print(f"   [{i}/{len(pendientes)}] {curso.get('titulo', '')[:50]:50s} "
+                          f"| idioma: {detalle.get('idioma','')} | temario: like")
 
                     if i % 10 == 0:
                         guardar_csv(pd.DataFrame(todos))
-                        print(f"  💾 Backup guardado (etapa 2): {i}/{len(pendientes)}")
+                        print(f"   💾 Backup guardado (etapa 2): {i}/{len(pendientes)}")
 
                     time.sleep(random.uniform(2.0, 4.0))
 
@@ -417,14 +360,6 @@ def main():
         df.drop_duplicates(subset=["url"], inplace=True)
     guardar_csv(df)
 
-    print(f"\n{'='*65}")
-    print(f"✅ Estado actual guardado")
-    print(f"   Cursos únicos:  {len(df):,}")
-    print(f"   Con temario:    {(df['temario'].astype(str).str.strip() != '').sum():,}")
-    print(f"   Archivo:        {OUTPUT_CSV}")
-    print(f"{'='*65}")
-    print("Si quedaron cursos sin temario (bloqueo), volvé a correr el script: "
-          "solo reintentará los pendientes.")
 
 
 if __name__ == "__main__":
